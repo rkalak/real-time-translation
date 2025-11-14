@@ -1,0 +1,28 @@
+# Python
+**/venv/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Environment variables
+.env
+.env.local
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+real-time-voice-middleware/venv/
+real-time-voice-middleware/__pycache__/
+real-time-voice-middleware/*.pyc
