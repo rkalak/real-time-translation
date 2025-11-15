@@ -58,7 +58,7 @@ elevenlabs_voice_id: typing.Optional[str] = None
 
 async def get_elevenlabs_voice_id() -> str:
     """
-    Get a valid voice ID from ElevenLabs. Prioritizes female voices for Spanish translation.
+    Get a valid voice ID from ElevenLabs. Uses the specified voice ID.
     """
     global elevenlabs_voice_id
     
@@ -66,48 +66,38 @@ async def get_elevenlabs_voice_id() -> str:
     if elevenlabs_voice_id:
         return elevenlabs_voice_id
     
+    # Use the specified voice ID
+    specified_voice_id = "T4Au24Lt2uWk24Qra0No"
+    
     try:
-        # Try to get available voices
+        # Verify the voice exists by trying to get all voices
         voices_response = await elevenlabs_client.voices.get_all()
         
-        if voices_response.voices and len(voices_response.voices) > 0:
-            # Prioritize female voices for Spanish (warm, empathetic tone)
-            # Order: Preferred female voices first, then other female voices
-            preferred_female_names = [
-                "Alisha", "Sarah", "Laura", "Alice", "Matilda", "Jessica", 
-                "Lily", "Rachel", "Bella", "Elli", "Charlotte", "Emily", "Nova"
-            ]
-            
-            # First, try to find preferred female voices
+        # Check if the specified voice ID exists in the available voices
+        voice_found = False
+        voice_name = "Unknown"
+        if voices_response.voices:
             for voice in voices_response.voices:
-                if voice.name in preferred_female_names:
-                    elevenlabs_voice_id = voice.voice_id
-                    print(f"Using ElevenLabs voice: {voice.name} (ID: {voice.voice_id[:8]}...)")
-                    return elevenlabs_voice_id
-            
-            # If no preferred female voice found, look for any female-sounding name
-            female_keywords = ["sarah", "laura", "alice", "matilda", "jessica", "lily", 
-                             "rachel", "bella", "charlotte", "emily", "nova", "alisha"]
-            for voice in voices_response.voices:
-                if any(keyword in voice.name.lower() for keyword in female_keywords):
-                    elevenlabs_voice_id = voice.voice_id
-                    print(f"Using ElevenLabs voice: {voice.name} (ID: {voice.voice_id[:8]}...)")
-                    return elevenlabs_voice_id
-            
-            # Last resort: use the first available voice
-            first_voice = voices_response.voices[0]
-            elevenlabs_voice_id = first_voice.voice_id
-            print(f"Using ElevenLabs voice: {first_voice.name} (ID: {first_voice.voice_id[:8]}...)")
+                if voice.voice_id == specified_voice_id:
+                    voice_found = True
+                    voice_name = voice.name
+                    break
+        
+        if voice_found:
+            elevenlabs_voice_id = specified_voice_id
+            print(f"Using ElevenLabs voice: {voice_name} (ID: {specified_voice_id[:8]}...)")
             return elevenlabs_voice_id
         else:
-            raise Exception("No voices found in your ElevenLabs account")
+            # Voice ID not found in account, but try to use it anyway (might be a public voice)
+            print(f"Warning: Voice ID {specified_voice_id[:8]}... not found in your account, but attempting to use it anyway.")
+            elevenlabs_voice_id = specified_voice_id
+            return elevenlabs_voice_id
             
     except Exception as e:
-        print(f"Warning: Could not fetch voices from ElevenLabs: {e}")
-        # Fallback to Sarah (female voice) - commonly available
-        fallback_voice_id = "EXAVITQu4vr4xnSDxMaL"  # Sarah
-        print(f"Using fallback voice ID: Sarah (ID: {fallback_voice_id[:8]}...)")
-        elevenlabs_voice_id = fallback_voice_id
+        print(f"Warning: Could not verify voice from ElevenLabs: {e}")
+        # Use the specified voice ID anyway (might work even if verification fails)
+        print(f"Using specified voice ID: {specified_voice_id[:8]}...")
+        elevenlabs_voice_id = specified_voice_id
         return elevenlabs_voice_id
 
 
@@ -144,6 +134,8 @@ async def microphone_stream_generator():
                         raise
         except asyncio.CancelledError:
             print("Microphone stream cancelled.")
+        except Exception as e:
+            print(f"Error in microphone stream: {e}")
     finally:
         print("Microphone stream closing.")
         if stream:
@@ -276,25 +268,31 @@ Predict next 1-3 words the user might say:"""
                 prediction_context = []
                 continue
 
-            # Step 1: Autocorrect the ASR input (MUST happen before translation)
-            corrected_chunk = await autocorrect_text(new_text_chunk, messages)
+            # All processes run in parallel - no blocking
+            # Step 1: Start autocorrect in parallel (non-blocking)
+            # Step 2: Start translation immediately with original input
+            # Step 3: Start next-token prediction in background
             
-            # Note: We don't do duplicate detection here because ASR worker already handles
-            # interim diffing and only sends NEW text chunks. Duplicate detection would
-            # incorrectly prevent translating complete new chunks that happen to contain
-            # words from previous chunks (e.g., "doctor" can appear multiple times).
+            # Start autocorrect in parallel (non-blocking)
+            # Translation starts immediately without waiting - they run simultaneously
+            corrected_chunk = new_text_chunk  # Use original text for translation
+            autocorrect_task = None
+            if LLM_AUTOCORRECT_ENABLED:
+                # Start autocorrect asynchronously - runs in parallel with translation
+                autocorrect_task = asyncio.create_task(autocorrect_text(new_text_chunk, messages))
             
-            # Step 2: Optional next-token prediction (runs in background for optimization)
+            # Start next-token prediction in background (non-blocking, zero latency impact)
             if LLM_PREDICTION_ENABLED:
                 # Run prediction asynchronously (don't wait for it)
                 asyncio.create_task(predict_next_tokens(messages))
             
-            print(f"LLM processing: '{corrected_chunk}'")
+            # Start translation immediately (runs in parallel with autocorrect)
+            # Translation uses original text - autocorrect runs simultaneously in background
+            print(f"LLM processing: '{new_text_chunk}'")
             
-            # Append the corrected chunk to history
-            messages.append({"role": "user", "content": corrected_chunk})
+            # Append the original chunk to history
+            messages.append({"role": "user", "content": new_text_chunk})
             
-            # Step 3: Translate using configured model
             translation_start = time.time()
             response_stream = await openai_client.chat.completions.create(
                 model=LLM_MODEL,  # Uses model from config (gpt-4o-mini by default)
@@ -302,6 +300,20 @@ Predict next 1-3 words the user might say:"""
                 stream=True,
                 temperature=LLM_TEMPERATURE
             )
+            
+            # Autocorrect continues running in background while translation streams
+            # If autocorrect finishes and finds corrections, log them for reference
+            # (but translation already started, so we continue with original text)
+            if autocorrect_task:
+                # Check autocorrect result after translation starts (non-blocking)
+                async def log_autocorrect_result():
+                    try:
+                        corrected = await autocorrect_task
+                        if corrected != new_text_chunk:
+                            print(f"[AUTOCORRECT]  '{new_text_chunk}' -> '{corrected}' (logged for reference)")
+                    except Exception as e:
+                        pass  # Ignore autocorrect errors
+                asyncio.create_task(log_autocorrect_result())
 
             # Buffer to hold full translation for this chunk
             translation_buffer = []
@@ -420,7 +432,10 @@ async def tts_worker(llm_to_tts_queue: asyncio.Queue):
         p.terminate()
         return
 
-    # Removed duplicate tracking - all translation chunks should be spoken
+    # Track recently sent TTS text to prevent exact duplicates
+    recent_tts_text = set()
+    recent_tts_window = []  # Keep a sliding window of recent texts
+    MAX_RECENT_TEXTS = 10  # Track last 10 chunks to prevent duplicates
     
     # Background task to check for latency reporting after speech pauses
     async def latency_checker():
@@ -440,8 +455,20 @@ async def tts_worker(llm_to_tts_queue: asyncio.Queue):
         if not text.strip():
             return
         
-        # Removed duplicate detection - all chunks should be spoken
-        # The ASR worker already handles interim diffing, so we don't need to prevent duplicates here
+        # Check for exact duplicates within recent window
+        text_normalized = text.strip().lower()
+        if text_normalized in recent_tts_text:
+            print(f"TTS skipping duplicate: '{text}'")
+            return
+        
+        # Mark as sent and add to recent window
+        recent_tts_text.add(text_normalized)
+        recent_tts_window.append(text_normalized)
+        
+        # Maintain sliding window (remove oldest if exceeds limit)
+        if len(recent_tts_window) > MAX_RECENT_TEXTS:
+            oldest = recent_tts_window.pop(0)
+            recent_tts_text.discard(oldest)
         
         # Apply buffer delay if configured
         if TTS_BUFFER_DELAY > 0:
@@ -454,13 +481,13 @@ async def tts_worker(llm_to_tts_queue: asyncio.Queue):
         latency_tracker.record_output(text)
         
         try:
-            # Voice settings - balanced for speed and quality
+            # Voice settings - optimized for smoother, less choppy speech
             voice_settings = {
-                "stability": 0.5,  # Lower = faster generation (0.5 = balanced, 0.7 = slower/more stable)
-                "similarity_boost": 0.75,
+                "stability": 0.7,  # Higher = smoother, more stable speech (0.7 = smoother, 0.5 = faster)
+                "similarity_boost": 0.8,  # Higher = more consistent voice
             }
             
-            # Try to use voice_settings if supported, otherwise use default
+            # Try to use voice_settings if supported, otherwise use without it
             try:
                 async for audio_chunk in elevenlabs_client.text_to_speech.stream(
                     voice_id=voice_id,
@@ -486,6 +513,10 @@ async def tts_worker(llm_to_tts_queue: asyncio.Queue):
             # Record TTS latency
             tts_latency = time.time() - tts_start
             latency_tracker.record_tts(tts_latency)
+            
+            # Mark that TTS has finished playing for this text
+            # (all audio chunks have been written to the stream)
+            latency_tracker.mark_tts_complete(text, tts_latency)
         
         except Exception as api_error:
             error_msg = str(api_error)
@@ -512,6 +543,9 @@ async def tts_worker(llm_to_tts_queue: asyncio.Queue):
                 if text_buffer.strip():
                     await send_text_to_tts(text_buffer.strip())
                 text_buffer = ""
+                # Clear duplicate tracking after sentence end to allow same words in different sentences
+                recent_tts_text.clear()
+                recent_tts_window.clear()
                 continue
             
             # Add the new token to our buffer

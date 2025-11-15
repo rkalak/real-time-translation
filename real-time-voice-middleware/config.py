@@ -55,7 +55,7 @@ RATE = 16000  # Deepgram prefers 16000 Hz
 
 # ASR (Speech-to-Text) latency settings
 ASR_BUFFER_DELAY = 0.0  # Delay before processing ASR chunks (0 = immediate, 0.1 = 100ms delay)
-ASR_MIN_CHUNK_SIZE = 3  # Minimum words before sending to LLM (1 = send immediately, 3 = wait for 3 words)
+ASR_MIN_CHUNK_SIZE = 2  # Minimum words before sending to LLM (1 = send immediately, 3 = wait for 3 words)
 ASR_MAX_CHUNK_SIZE = 5  # Maximum words per chunk (split if exceeds this, None = no limit)
 
 # LLM (Translation) latency settings
@@ -67,13 +67,13 @@ LLM_MAX_RETRIES = 2  # Max retries for autocorrect if first attempt fails (0-3 r
 LLM_MODEL = "gpt-4o-mini"  # Model to use: "gpt-4o-mini" (fast, cheap) or "gpt-4o" (slower, better quality)
 
 # TTS (Text-to-Speech) latency settings
-TTS_BUFFER_DELAY = 0.0  # Delay before sending to TTS (0 = immediate, 0.05 = 50ms delay)
-TTS_MAX_BUFFER_LENGTH = 30  # Max characters before forcing send (lower = faster, higher = more coherent)
-TTS_MIN_CHUNK_LENGTH = 3  # Minimum characters before sending (lower = faster, but may be choppy)
-TTS_SPACE_SEND_LENGTH = 8  # Send on spaces if buffer reaches this length (lower = faster)
+TTS_BUFFER_DELAY = 0.1  # Delay before sending to TTS (0 = immediate, 0.1 = 100ms delay for smoother output)
+TTS_MAX_BUFFER_LENGTH = 50  # Max characters before forcing send (higher = more coherent, smoother speech)
+TTS_MIN_CHUNK_LENGTH = 8  # Minimum characters before sending (higher = smoother, less choppy)
+TTS_SPACE_SEND_LENGTH = 15  # Send on spaces if buffer reaches this length (higher = smoother phrases)
 TTS_PUNCTUATION_WAIT = True  # Wait for punctuation before speaking (True = coherent, False = faster)
 
 # Latency measurement settings
 MEASURE_LATENCY = True  # Enable latency measurement and reporting (True = see metrics, False = no overhead)
-LATENCY_REPORT_INTERVAL = 5  # Report average latency every N seconds (5 = every 5 seconds)
+LATENCY_REPORT_INTERVAL = 3  # Report average latency every N seconds (5 = every 5 seconds)
 
