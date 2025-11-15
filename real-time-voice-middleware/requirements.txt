@@ -1,0 +1,14 @@
+# Real-Time Voice Translation Pipeline Dependencies
+
+# Speech-to-Text (ASR)
+deepgram-sdk>=5.3.0
+
+# Translation (LLM)
+openai>=1.0.0
+
+# Text-to-Speech
+elevenlabs>=2.0.0
+
+# Audio Input/Output
+pyaudio>=0.2.14
+

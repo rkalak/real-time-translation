@@ -1,57 +1,129 @@
-# Real-Time Voice Translation Middleware
+# StarLife - Real-Time Voice Translation
 
-A real-time simultaneous interpretation pipeline that translates English speech to an inputted end users language using:
-- **Deepgram** for speech-to-text (ASR)
-- **OpenAI GPT-4o** for translation
-- **ElevenLabs** for text-to-speech (TTS)
+A real-time simultaneous interpretation pipeline that translates English speech to multiple target languages using advanced AI services. Currently working with English to Spanish
 
 ## Features
 
-- **Simultaneous Interpretation**: Translation starts while you're still speaking
-- **Interim Diffing**: Intelligently handles ASR interim results to avoid duplicate words
-- **Context-Aware Translation**: Maintains conversation history for coherent translations
-- **Low-Latency Streaming**: Audio plays as it's generated
+- Translation starts while you're still speaking
+- Handles ASR interim results to avoid duplicate words
+- Maintains conversation history for coherence
+- Audio plays in chunks as it's generated
+- Currently configured for Spanish
 
-## Setup
+## Technology Stack
 
-1. **Install dependencies**:
-   ```bash
-   cd real-time-voice-middleware
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install deepgram-sdk openai elevenlabs pyaudio
-   ```
+- Deepgram: Speech-to-text (ASR) with medical model support
+- OpenAI GPT-4o-mini: Real-time translation with context awareness
+- ElevenLabs: TTS
 
-2. **Set environment variables**:
-   ```bash
-   export DEEPGRAM_API_KEY=your_deepgram_key
-   export OPENAI_API_KEY=your_openai_key
-   export ELEVENLABS_API_KEY=your_elevenlabs_key
-   ```
+## Project Structure
 
-3. **Run the pipeline**:
-   ```bash
-   python pipeline.py
-   ```
+```
+starlife/
+├── real-time-voice-middleware/
+│   ├── asr_worker.py        # Automatic speech recognition
+│   ├── config.py            # Parameter adjustment
+│   ├── latency_tracker.py   # Latency measurement and reporting
+│   ├── pipeline.py          # Main translation pipeline
+│   ├── requirements.txt     # Python dependencies
+│   └── README.md             # Detailed documentation
+```
 
-## Architecture
+## Current Configuration
 
-The pipeline consists of three async workers:
+- Input Language: English (US)
+- Output Language: Spanish
+- Voice: Molete (Spanish female voice)
+- Audio Format: PCM 16kHz, 16-bit, mono
 
-1. **ASR Worker**: Captures microphone input, sends to Deepgram, implements interim diffing
-2. **LLM Worker**: Receives text chunks, translates to Telugu using OpenAI, streams tokens
-3. **TTS Worker**: Receives translation tokens, buffers them, sends to ElevenLabs, plays audio
+## Dependencies
 
-## Configuration
+The pipeline requires the following Python packages:
 
-- **Input Language**: English (US)
-- **Output Language**: Currently Telugu
-- **Voice**: Alisha (Indian female voice, optimized for Telugu)
-- **Audio Format**: PCM 16kHz, 16-bit, mono
+- **deepgram-sdk** (>=5.3.0) - For speech-to-text recognition
+- **openai** (>=1.0.0) - For translation using GPT models
+- **elevenlabs** (>=2.0.0) - For text-to-speech synthesis
+- **pyaudio** (>=0.2.14) - For microphone input and audio playback
 
-## Notes
+### Installing Dependencies
 
-- The system uses simultaneous interpretation, which trades a small amount of translation quality for significantly reduced latency
-- Interim ASR results are intelligently diffed to avoid sending duplicate text to the translator
-- The TTS worker buffers tokens and sends them in chunks to balance latency and audio quality
+**Option 1: Using requirements.txt (Recommended)**
+
+```bash
+cd real-time-voice-middleware
+pip install -r requirements.txt
+```
+
+**Option 2: Manual Installation**
+
+```bash
+pip install deepgram-sdk openai elevenlabs pyaudio
+```
+
+**Note for PyAudio**: On some systems, PyAudio may require additional system dependencies:
+- **macOS**: `brew install portaudio`
+- **Linux (Ubuntu/Debian)**: `sudo apt-get install portaudio19-dev python3-pyaudio`
+- **Windows**: Usually installs without additional dependencies
+
+## Quick Start / Usage Instructions
+
+### 1. Navigate to the Project Directory
+
+```bash
+cd real-time-voice-middleware
+```
+
+### 2. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Set Up API Keys
+
+The pipeline requires three API keys. Set them as environment variables using the `export` command:
+
+```bash
+export DEEPGRAM_API_KEY=your_deepgram_api_key_here
+export OPENAI_API_KEY=your_openai_api_key_here
+export ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+```
+
+**To make API keys persistent** (recommended), add them to your shell profile:
+
+**For zsh (macOS default):**
+```bash
+echo 'export DEEPGRAM_API_KEY=your_deepgram_api_key_here' >> ~/.zshrc
+echo 'export OPENAI_API_KEY=your_openai_api_key_here' >> ~/.zshrc
+echo 'export ELEVENLABS_API_KEY=your_elevenlabs_api_key_here' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**For bash:**
+```bash
+echo 'export DEEPGRAM_API_KEY=your_deepgram_api_key_here' >> ~/.bashrc
+echo 'export OPENAI_API_KEY=your_openai_api_key_here' >> ~/.bashrc
+echo 'export ELEVENLABS_API_KEY=your_elevenlabs_api_key_here' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 4. Activate Virtual Environment (Optional)
+
+If you're using a virtual environment:
+
+```bash
+source venv/bin/activate
+```
+
+### 5. Run the Pipeline
+
+```bash
+python pipeline.py
+```
+
+The pipeline will:
+- Check that all API keys are set
+- Start the ASR, LLM, and TTS workers
+- Open your microphone for input
+- Begin translating your speech in real-time
 

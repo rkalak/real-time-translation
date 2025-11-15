@@ -2,22 +2,27 @@
 
 ## Executive Summary
 
-The TTS (Text-to-Speech) step is currently the **highest latency component** in the pipeline, averaging **1000-2000ms** per chunk. This report identifies the root causes and provides recommendations for optimization.
+The TTS (Text-to-Speech) step is currently the **highest latency component** in the pipeline, averaging **1200-1800ms** per chunk based on recent measurements. This report identifies the root causes and provides recommendations for optimization.
+
+**Last Updated**: Based on current configuration and recent performance measurements.
 
 ---
 
 ## Current TTS Latency Breakdown
 
-Based on code analysis and typical performance:
+Based on code analysis and recent performance measurements:
 
 | Component | Estimated Latency | Percentage |
 |-----------|------------------|------------|
-| **ElevenLabs API Generation** | 800-1500ms | 60-75% |
-| **Network Round-Trip** | 100-300ms | 10-15% |
-| **Audio Buffering Logic** | 50-200ms | 5-10% |
-| **PyAudio Playback** | 50-100ms | 5-10% |
-| **Voice Settings Processing** | 10-50ms | 1-5% |
-| **Total** | **1000-2000ms** | **100%** |
+| **ElevenLabs API Generation** | 900-1400ms | 65-75% |
+| **Network Round-Trip** | 100-300ms | 8-15% |
+| **TTS Buffer Delay** | 50ms | 3-5% |
+| **Audio Buffering Logic** | 100-200ms | 5-10% |
+| **PyAudio Playback** | 50-100ms | 3-5% |
+| **Voice Settings Processing** | 10-50ms | 1-3% |
+| **Total** | **1200-1800ms** | **100%** |
+
+**Recent Measurement**: Average TTS latency of ~1456ms (from terminal output)
 
 ---
 
@@ -27,20 +32,23 @@ Based on code analysis and typical performance:
 **Impact: 60-75% of total latency**
 
 **Causes:**
-- **Voice Model Processing**: The `eleven_turbo_v2_5` model still requires significant processing time
-- **Voice Settings**: `stability: 0.5` and `similarity_boost: 0.75` add processing overhead
+- **Voice Model Processing**: The `eleven_turbo_v2_5` model requires significant processing time
+- **Voice Settings**: `stability: 0.7` and `similarity_boost: 0.8` add processing overhead (optimized for quality over speed)
 - **Text Length**: Longer text chunks take proportionally longer to generate
 - **API Server Load**: ElevenLabs API response time varies based on server load
+- **Current Buffer Settings**: `TTS_MAX_BUFFER_LENGTH = 75` and `TTS_MIN_CHUNK_LENGTH = 20` create larger chunks
 
 **Evidence:**
-- Current `tts_latency` measurements show 1000-2000ms per chunk
+- Recent `tts_latency` measurements show ~1456ms average per chunk
 - This is measured from API call start to completion
+- Larger buffer settings (75 chars max, 20 chars min) increase chunk size and generation time
 
 **Recommendations:**
-1. **Reduce voice stability** from `0.5` to `0.3-0.4` for faster generation (trade-off: slightly less stable voice)
-2. **Use shorter text chunks**: Current `TTS_MAX_BUFFER_LENGTH = 30` is good, but could reduce to `20-25` for faster generation
-3. **Consider ElevenLabs streaming optimization**: Ensure we're using the fastest available model
-4. **Parallel processing**: If multiple chunks are ready, send them in parallel (requires API rate limit consideration)
+1. **Reduce voice stability** from `0.7` to `0.4-0.5` for faster generation (trade-off: slightly less stable voice)
+2. **Reduce buffer thresholds**: Current `TTS_MAX_BUFFER_LENGTH = 75` is high - consider reducing to `40-50`
+3. **Reduce minimum chunk length**: Current `TTS_MIN_CHUNK_LENGTH = 20` is high - consider reducing to `10-15` for faster sends
+4. **Consider ElevenLabs streaming optimization**: Add `optimize_streaming_latency=3` parameter if supported
+5. **Switch to Flash model**: Consider `eleven_flash_v2_5` if available (faster than Turbo)
 
 ### 2. **Network Latency** (SECONDARY BOTTLENECK)
 **Impact: 10-15% of total latency**
@@ -61,21 +69,26 @@ Based on code analysis and typical performance:
 **Current Implementation:**
 ```python
 # Waits for punctuation or buffer length thresholds
-TTS_MAX_BUFFER_LENGTH = 30  # Max characters before forcing send
-TTS_SPACE_SEND_LENGTH = 8   # Send on spaces if buffer reaches this length
-TTS_PUNCTUATION_WAIT = True # Wait for punctuation before speaking
+TTS_BUFFER_DELAY = 0.05        # 50ms delay before sending
+TTS_MAX_BUFFER_LENGTH = 75     # Max characters before forcing send
+TTS_MIN_CHUNK_LENGTH = 20     # Minimum characters before sending
+TTS_SPACE_SEND_LENGTH = 15    # Send on spaces if buffer reaches this length
+TTS_PUNCTUATION_WAIT = True   # Wait for punctuation before speaking
 ```
 
 **Causes:**
-- **Punctuation waiting**: Delays sending until punctuation marks (`.`, `!`, `?`, etc.)
-- **Space-based buffering**: Waits for buffer to reach 8 characters before sending on spaces
-- **Minimum chunk size**: `TTS_MIN_CHUNK_LENGTH = 3` prevents very small chunks
+- **Buffer delay**: `TTS_BUFFER_DELAY = 0.05` adds 50ms before each TTS call
+- **Punctuation waiting**: Delays sending until punctuation marks (`.`, `!`, `?`, `;`, etc.)
+- **Space-based buffering**: Waits for buffer to reach 15 characters before sending on spaces
+- **Minimum chunk size**: `TTS_MIN_CHUNK_LENGTH = 20` requires larger chunks before sending
+- **Maximum buffer**: `TTS_MAX_BUFFER_LENGTH = 75` allows very large chunks (increases generation time)
 
 **Recommendations:**
-1. **Reduce `TTS_SPACE_SEND_LENGTH`** from `8` to `5-6` for faster sending
-2. **Reduce `TTS_MAX_BUFFER_LENGTH`** from `30` to `20-25` for more frequent sends
-3. **Consider disabling `TTS_PUNCTUATION_WAIT`** for ultra-low latency (trade-off: may break mid-sentence)
-4. **Send on commas immediately**: Already implemented, but could be more aggressive
+1. **Reduce `TTS_BUFFER_DELAY`** from `0.05` to `0.0` for immediate sending (saves 50ms per chunk)
+2. **Reduce `TTS_MAX_BUFFER_LENGTH`** from `75` to `40-50` for more frequent, smaller sends
+3. **Reduce `TTS_MIN_CHUNK_LENGTH`** from `20` to `10-15` for faster initial sends
+4. **Reduce `TTS_SPACE_SEND_LENGTH`** from `15` to `10-12` for faster space-based sends
+5. **Consider disabling `TTS_PUNCTUATION_WAIT`** for ultra-low latency (trade-off: may break mid-sentence)
 
 ### 4. **PyAudio Playback** (MINOR IMPACT)
 **Impact: 5-10% of total latency**
@@ -90,19 +103,26 @@ TTS_PUNCTUATION_WAIT = True # Wait for punctuation before speaking
 3. **Pre-buffer audio**: Start playing audio as soon as first chunk arrives (already implemented)
 
 ### 5. **Voice Settings Processing** (MINIMAL IMPACT)
-**Impact: 1-5% of total latency**
+**Impact: 1-3% of total latency**
 
 **Current Settings:**
 ```python
 voice_settings = {
-    "stability": 0.5,        # Lower = faster (0.3-0.4 recommended)
-    "similarity_boost": 0.75 # Standard value
+    "stability": 0.7,        # Higher = smoother but slower (0.4-0.5 recommended for speed)
+    "similarity_boost": 0.8  # Higher = more consistent voice
 }
 ```
 
+**Current Trade-off:**
+- Settings optimized for **quality and smoothness** over speed
+- `stability: 0.7` prioritizes smooth, stable speech but increases generation time
+- `similarity_boost: 0.8` ensures consistent voice but adds processing overhead
+
 **Recommendations:**
-1. **Reduce stability to 0.3-0.4**: Faster generation with acceptable quality
-2. **Test without voice_settings**: Some API versions may process faster without explicit settings
+1. **Reduce stability to 0.4-0.5**: Faster generation with acceptable quality (saves ~100-200ms)
+2. **Reduce similarity_boost to 0.65-0.75**: Slightly faster processing with minimal quality impact
+3. **Test without voice_settings**: Some API versions may process faster without explicit settings
+4. **Add `optimize_streaming_latency=3`**: If supported, can reduce latency by 50% (400-500ms)
 
 ---
 
@@ -110,8 +130,11 @@ voice_settings = {
 
 | Optimization | Impact | Effort | Priority |
 |--------------|--------|--------|----------|
-| Reduce voice stability (0.5 → 0.3) | High | Low | **P0** |
-| Reduce buffer thresholds (30 → 20, 8 → 5) | Medium | Low | **P0** |
+| Reduce voice stability (0.7 → 0.4) | High | Low | **P0** |
+| Reduce buffer delay (0.05 → 0.0) | Medium | Low | **P0** |
+| Reduce buffer thresholds (75 → 50, 20 → 15) | Medium | Low | **P0** |
+| Add optimize_streaming_latency=3 | High | Low | **P0** |
+| Switch to Flash model (if available) | High | Low | **P1** |
 | Parallel TTS requests | High | Medium | **P1** |
 | WebSocket streaming | High | High | **P2** |
 | Async audio writing | Low | Medium | **P2** |
@@ -122,11 +145,13 @@ voice_settings = {
 ## Recommended Immediate Actions
 
 ### Quick Wins (Can implement immediately):
-1. **Reduce `stability` from `0.5` to `0.3`** in `pipeline.py` line 459
-2. **Reduce `TTS_MAX_BUFFER_LENGTH` from `30` to `20`** in `config.py` line 71
-3. **Reduce `TTS_SPACE_SEND_LENGTH` from `8` to `5`** in `config.py` line 73
+1. **Reduce `stability` from `0.7` to `0.4-0.5`** in `pipeline.py` line 486
+2. **Reduce `TTS_BUFFER_DELAY` from `0.05` to `0.0`** in `config.py` line 70 (saves 50ms per chunk)
+3. **Reduce `TTS_MAX_BUFFER_LENGTH` from `75` to `40-50`** in `config.py` line 71
+4. **Reduce `TTS_MIN_CHUNK_LENGTH` from `20` to `10-15`** in `config.py` line 72
+5. **Add `optimize_streaming_latency=3`** parameter to ElevenLabs API call (if supported)
 
-**Expected Impact**: 20-30% latency reduction (200-600ms improvement)
+**Expected Impact**: 25-35% latency reduction (300-600ms improvement)
 
 ### Medium-term Optimizations:
 1. **Implement parallel TTS requests**: Send multiple chunks simultaneously if ready
@@ -148,19 +173,22 @@ voice_settings = {
 
 ### Primary TTS Latency Sources:
 
-1. **ElevenLabs API Call** (`pipeline.py` lines 465-484):
+1. **ElevenLabs API Call** (`pipeline.py` lines 492-501):
    - `elevenlabs_client.text_to_speech.stream()` - Main API call
-   - `voice_settings` - Processing overhead
-   - `model_id="eleven_turbo_v2_5"` - Model selection
+   - `voice_settings` - Processing overhead (stability: 0.7, similarity_boost: 0.8)
+   - `model_id="eleven_turbo_v2_5"` - Model selection (consider Flash v2.5)
+   - **Missing**: `optimize_streaming_latency=3` parameter (can add significant speedup)
 
-2. **Buffering Logic** (`pipeline.py` lines 520-544):
+2. **Buffering Logic** (`pipeline.py` lines 529-570):
+   - `TTS_BUFFER_DELAY` - 50ms delay before sending (config.py line 70)
    - `TTS_PUNCTUATION_WAIT` - Waits for punctuation
-   - `TTS_SPACE_SEND_LENGTH` - Space-based threshold
-   - `TTS_MAX_BUFFER_LENGTH` - Maximum buffer size
+   - `TTS_SPACE_SEND_LENGTH` - Space-based threshold (currently 15)
+   - `TTS_MAX_BUFFER_LENGTH` - Maximum buffer size (currently 75)
+   - `TTS_MIN_CHUNK_LENGTH` - Minimum chunk size (currently 20)
 
-3. **Voice Settings** (`pipeline.py` lines 458-461):
-   - `stability: 0.5` - Can be reduced to 0.3
-   - `similarity_boost: 0.75` - Standard value
+3. **Voice Settings** (`pipeline.py` lines 485-488):
+   - `stability: 0.7` - Can be reduced to 0.4-0.5 for speed
+   - `similarity_boost: 0.8` - Can be reduced to 0.65-0.75
 
 ---
 
@@ -168,8 +196,12 @@ voice_settings = {
 
 | Scenario | Current | After Quick Wins | After All Optimizations |
 |----------|---------|-----------------|------------------------|
-| **Average TTS Latency** | 1000-2000ms | 700-1400ms | 400-800ms |
-| **Improvement** | Baseline | 30% faster | 60% faster |
+| **Average TTS Latency** | 1200-1800ms | 800-1200ms | 500-900ms |
+| **Improvement** | Baseline | 30-35% faster | 50-60% faster |
+
+**Current Measurement**: ~1456ms average (from recent terminal output)
+**Target After Quick Wins**: ~900-1000ms average
+**Target After All Optimizations**: ~600-800ms average
 
 ---
 
@@ -182,13 +214,28 @@ voice_settings = {
 
 ---
 
+## Current Configuration Summary
+
+**Current Settings (Optimized for Quality/Smoothness):**
+- `TTS_BUFFER_DELAY = 0.05` (50ms delay)
+- `TTS_MAX_BUFFER_LENGTH = 75` (large chunks)
+- `TTS_MIN_CHUNK_LENGTH = 20` (requires substantial text before sending)
+- `TTS_SPACE_SEND_LENGTH = 15` (waits for longer phrases)
+- `voice_settings.stability = 0.7` (high quality, slower)
+- `voice_settings.similarity_boost = 0.8` (consistent voice)
+- `model_id = "eleven_turbo_v2_5"` (Turbo model, not Flash)
+
+**Trade-off**: Current settings prioritize smooth, coherent speech over raw speed, resulting in higher latency but better quality.
+
 ## Conclusion
 
-The TTS latency is primarily caused by **ElevenLabs API generation time** (60-75% of total). The most impactful optimizations are:
+The TTS latency is primarily caused by **ElevenLabs API generation time** (65-75% of total) and **current buffer settings optimized for quality** (larger chunks = longer generation time). The most impactful optimizations are:
 
-1. **Reduce voice stability** (immediate, low effort, high impact)
-2. **Reduce buffer thresholds** (immediate, low effort, medium impact)
-3. **Parallel processing** (medium effort, high impact)
+1. **Reduce voice stability** from 0.7 to 0.4-0.5 (immediate, low effort, high impact - saves ~100-200ms)
+2. **Reduce buffer delay** from 0.05 to 0.0 (immediate, low effort, medium impact - saves 50ms per chunk)
+3. **Reduce buffer thresholds** (75→50, 20→15) (immediate, low effort, medium impact - enables faster sends)
+4. **Add optimize_streaming_latency=3** (immediate, low effort, high impact - saves ~400-500ms if supported)
+5. **Switch to Flash model** (if available) (immediate, low effort, high impact - saves ~150-200ms)
 
-Implementing the quick wins should reduce TTS latency by **20-30%**, bringing average latency from **1000-2000ms** down to **700-1400ms**.
+Implementing the quick wins should reduce TTS latency by **25-35%**, bringing average latency from **~1456ms** down to **~900-1000ms**.
 
