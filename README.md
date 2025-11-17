@@ -21,12 +21,33 @@ A real-time simultaneous interpretation pipeline that translates English speech 
 ```
 starlife/
 ├── real-time-voice-middleware/
+│   ├── app.py               # Streamlit web app (for deployment)
 │   ├── asr_worker.py        # Automatic speech recognition
 │   ├── config.py            # Parameter adjustment
 │   ├── latency_tracker.py   # Latency measurement and reporting
-│   ├── pipeline.py          # Main translation pipeline
+│   ├── pipeline.py          # Main translation pipeline (local)
 │   ├── requirements.txt     # Python dependencies
+│   ├── STREAMLIT_DEPLOYMENT.md  # Web app deployment guide
 │   └── README.md             # Detailed documentation
+```
+
+## Deployment Options
+
+### Option 1: Local Pipeline (pipeline.py)
+Run the pipeline locally on your machine with microphone input and speaker output.
+
+**See**: `real-time-voice-middleware/README.md` for local setup instructions.
+
+### Option 2: Web App (app.py) 🌐
+Deploy as a web app using Streamlit. Users can access it via a browser URL - no installation needed!
+
+**See**: `real-time-voice-middleware/STREAMLIT_DEPLOYMENT.md` for deployment instructions.
+
+**Quick Start (Local Testing)**:
+```bash
+cd real-time-voice-middleware
+pip install -r requirements.txt
+streamlit run app.py
 ```
 
 ## Current Configuration

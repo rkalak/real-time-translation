@@ -1,5 +1,8 @@
 # Real-Time Voice Translation Pipeline Dependencies
 
+# Web App Framework
+streamlit>=1.28.0
+
 # Speech-to-Text (ASR)
 deepgram-sdk>=5.3.0
 
@@ -9,6 +12,6 @@ openai>=1.0.0
 # Text-to-Speech
 elevenlabs>=2.0.0
 
-# Audio Input/Output
+# Audio Input/Output (for local pipeline.py, not needed for Streamlit app)
 pyaudio>=0.2.14
 

@@ -391,6 +391,8 @@ Predict next 1-3 words the user might say:"""
             import traceback
             traceback.print_exc()
 
+#unsure how to prove the next token prediction is working
+
 
 async def tts_worker(llm_to_tts_queue: asyncio.Queue):
     """
