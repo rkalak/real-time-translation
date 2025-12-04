@@ -1,4 +1,4 @@
-# StarLife - Real-Time Voice Translation
+# Real-Time Voice Translation
 
 A real-time simultaneous interpretation pipeline that translates English speech to multiple target languages using advanced AI services. Currently working with English to Spanish
 
